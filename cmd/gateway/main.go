@@ -15,6 +15,7 @@ func main() {
 	gw := &gateway.Gateway{
 		LB:     lb,
 		Client: &http.Client{},
+		RL:     gateway.NewRateLimiter(),
 	}
 	go gateway.StartHealthChecker(lb, 10*time.Second)
 	server := &http.Server{

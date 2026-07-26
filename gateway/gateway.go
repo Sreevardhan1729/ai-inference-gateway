@@ -1,7 +1,10 @@
 package gateway
 
 import (
+	"ai-inference-gateway/chat"
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -11,9 +14,23 @@ import (
 
 type Gateway struct {
 	LB     *LoadBalancer
+	RL     *RateLimiter
 	Client *http.Client
 }
 
+func getEstimated(body []byte) int {
+	var requstBody chat.ChatCompletionRequest
+	err := json.NewDecoder(bytes.NewReader(body)).Decode(&requstBody)
+	if err != nil {
+		return -1
+	}
+	var contentLength int
+	for _, request := range requstBody.Messages {
+		contentLength += len(request.Content)
+	}
+	totalTokens := requstBody.MaxTokens + contentLength/4
+	return totalTokens
+}
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var fullUrl string
 	currentBackend := g.LB.Next()
@@ -21,12 +38,29 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	bodyBytes, _ := io.ReadAll(r.Body)
+	defer r.Body.Close()
+	user := r.Header.Get("X-API-Key")
+	if user == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	estimated := getEstimated(bodyBytes)
+	if estimated == -1 {
+		http.Error(w, "Internal Server Error: Failed to read request", http.StatusInternalServerError)
+		return
+	}
+	if !g.RL.Accept(user, estimated) {
+		w.Header().Set("Retry-After", "60")
+		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+		return
+	}
 	if len(r.URL.RawQuery) == 0 {
 		fullUrl = fmt.Sprintf("%s%s", currentBackend.URL, r.URL.Path)
 	} else {
 		fullUrl = fmt.Sprintf("%s%s?%s", currentBackend.URL, r.URL.Path, r.URL.RawQuery)
 	}
-	req, errReq := http.NewRequestWithContext(r.Context(), r.Method, fullUrl, r.Body)
+	req, errReq := http.NewRequestWithContext(r.Context(), r.Method, fullUrl, bytes.NewReader(bodyBytes))
 	if errReq != nil {
 		log.Printf("Failed to create backend Request: %v", errReq)
 		http.Error(w, "Internal Server Error: ", http.StatusInternalServerError)
