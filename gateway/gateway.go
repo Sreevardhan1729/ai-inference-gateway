@@ -16,10 +16,15 @@ type Gateway struct {
 
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var fullUrl string
+	currentBackend := g.LB.Next()
+	if currentBackend == nil {
+		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	if len(r.URL.RawQuery) == 0 {
-		fullUrl = fmt.Sprintf("%s%s", g.LB.Next().URL, r.URL.Path)
+		fullUrl = fmt.Sprintf("%s%s", currentBackend.URL, r.URL.Path)
 	} else {
-		fullUrl = fmt.Sprintf("%s%s?%s", g.LB.Next().URL, r.URL.Path, r.URL.RawQuery)
+		fullUrl = fmt.Sprintf("%s%s?%s", currentBackend.URL, r.URL.Path, r.URL.RawQuery)
 	}
 	req, errReq := http.NewRequestWithContext(r.Context(), r.Method, fullUrl, r.Body)
 	if errReq != nil {
@@ -32,7 +37,13 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if errResp != nil {
 		log.Printf("Backend request Failed: %v", errResp)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
+		g.LB.IncrementFailureAndUpdateHealthStatus(currentBackend)
 		return
+	}
+	if resp.StatusCode >= 500 {
+		g.LB.IncrementFailureAndUpdateHealthStatus(currentBackend)
+	} else {
+		g.LB.RecordSuccess(currentBackend)
 	}
 	defer resp.Body.Close()
 	for k, v := range resp.Header {
@@ -67,6 +78,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
+		w.WriteHeader(resp.StatusCode)
 		_, err := io.Copy(w, resp.Body)
 		if err != nil {
 			log.Printf("Internal Server Error: Failed to encode response payload %v", err)

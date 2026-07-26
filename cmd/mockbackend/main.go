@@ -36,6 +36,15 @@ func getMockResponse(cnt int) chat.ChatCompletionResponse {
 	}
 }
 
+func handleHealthCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "Method Not Allowed. Use POST", http.StatusMethodNotAllowed)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 func handleV1ChatCompletion(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")

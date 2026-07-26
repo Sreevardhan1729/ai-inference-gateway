@@ -4,16 +4,19 @@ import (
 	"ai-inference-gateway/gateway"
 	"log"
 	"net/http"
+	"time"
 )
 
 func main() {
+	lb := gateway.NewLoadBalancer([]gateway.BackendConfig{
+		{URL: "http://localhost:9001", Weight: 1},
+		{URL: "http://localhost:9002", Weight: 3},
+	})
 	gw := &gateway.Gateway{
-		LB: gateway.NewLoadBalancer([]gateway.BackendConfig{
-			{URL: "http://localhost:9001", Weight: 1},
-			{URL: "http://localhost:9002", Weight: 3},
-		}),
+		LB:     lb,
 		Client: &http.Client{},
 	}
+	go gateway.StartHealthChecker(lb, 10*time.Second)
 	server := &http.Server{
 		Addr:    ":8080",
 		Handler: gw,
