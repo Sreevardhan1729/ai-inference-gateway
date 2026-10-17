@@ -35,6 +35,7 @@ func main() {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "demo")
 	resp, errResp := client.Do(req)
 	if errResp != nil {
 		fmt.Println("errResp", errResp)
@@ -49,7 +50,7 @@ func main() {
 		fmt.Println(line)
 	}
 	if err := scanner.Err(); err != nil {
-		fmt.Println("errScanner: ", errReq)
+		fmt.Println("errScanner: ", err)
 	}
 
 }

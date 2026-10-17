@@ -53,7 +53,10 @@ func handleV1ChatCompletion(w http.ResponseWriter, r *http.Request) {
 	}
 	localAddr, _ := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
 	w.Header().Set("Server-Id", localAddr.String())
-	time.Sleep(time.Second)
+	noSleep := os.Getenv("NOSLEEP") != ""
+	if !noSleep {
+		time.Sleep(time.Second)
+	}
 	var requestBody chat.ChatCompletionRequest
 	errBody := json.NewDecoder(r.Body).Decode(&requestBody)
 	if errBody != nil {
@@ -76,7 +79,9 @@ func handleV1ChatCompletion(w http.ResponseWriter, r *http.Request) {
 			if f, ok := w.(http.Flusher); ok {
 				f.Flush()
 			}
-			time.Sleep(time.Second)
+			if !noSleep {
+				time.Sleep(time.Second)
+			}
 		}
 		var buf bytes.Buffer
 		buf.WriteString("data: [DONE]\n\n")
@@ -103,6 +108,7 @@ func main() {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/chat/completions", handleV1ChatCompletion)
+	mux.HandleFunc("/health", handleHealthCheck)
 	server := &http.Server{
 		Addr:    port,
 		Handler: mux,
